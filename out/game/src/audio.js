@@ -79,6 +79,23 @@ export function createAudio() {
       tone(440, 0.1, 0.35, 'triangle');
       if (!muted) setTimeout(() => tone(660, 0.14, 0.3, 'triangle'), 80);
     },
+    /** An ember flare caught: a rising fire whoosh. */
+    flare() {
+      slide(300, 900, 0.35, 0.5);
+    },
+    /** A rock burns as fuel: a short crackle. */
+    burn() {
+      tone(180, 0.12, 0.4, 'sawtooth');
+      if (!muted) setTimeout(() => tone(240, 0.1, 0.3, 'sawtooth'), 60);
+    },
+    /** A five-combo streak: a bright arpeggio. */
+    combo() {
+      tone(660, 0.08, 0.35, 'triangle');
+      if (!muted) {
+        setTimeout(() => tone(880, 0.08, 0.35, 'triangle'), 60);
+        setTimeout(() => tone(1320, 0.12, 0.35, 'triangle'), 120);
+      }
+    },
     toggleMute() {
       muted = !muted;
       return muted;

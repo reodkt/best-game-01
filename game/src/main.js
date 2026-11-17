@@ -6,7 +6,7 @@
 // instead of running the loop, paints it twice and sets window.__shotReady for a screenshot.
 import { BEST_KEY, EMBER, STEP } from './config.js';
 import { createRandom } from './random.js';
-import { createWorld, EVENT_CRACK, EVENT_DEPTH, EVENT_MOTH, EVENT_OUT } from './world.js';
+import { createWorld, EVENT_BURN, EVENT_COMBO, EVENT_CRACK, EVENT_FLARE, EVENT_MOTH, EVENT_OUT } from './world.js';
 import { ACTION_CONFIRM, ACTION_MUTE, ACTION_PAUSE, createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
@@ -42,24 +42,13 @@ function saveBest(value) {
   }
 }
 
-function runShot(name) {
-  const scene = stageShot(name, world);
-  let painted = 0;
-  function paint() {
-    renderer.draw(world.state, scene.screen, scene.best);
-    painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
-    else window.__shotReady = true;
-  }
-  requestAnimationFrame(paint);
-}
-
 function runGame() {
   const input = createInput(canvas);
   let screen = SCREEN_TITLE;
   let best = readBest();
   let accumulator = 0;
   let last = performance.now();
+  let frameDt = 1 / 60;
 
   // Screen readers (and anyone watching the page's text) hear the screen changes and each event.
   function announce(message) {
@@ -77,6 +66,7 @@ function runGame() {
   function endGame() {
     screen = SCREEN_OVER;
     audio.out();
+    renderer.addShake(14);
     if (world.state.score > best) {
       best = world.state.score;
       saveBest(best);
@@ -101,22 +91,27 @@ function runGame() {
   }
 
   function step() {
-    if (screen === SCREEN_TITLE) {
-      world.step(STEP, 0, 0, true);
-      return;
-    }
     const events = world.step(STEP, input.direction(), input.lean(), false);
     if (events & EVENT_OUT) endGame();
     else {
-      if (events & EVENT_CRACK) audio.crack();
+      if (events & EVENT_CRACK) {
+        audio.crack();
+        renderer.addShake(8);
+      }
       if (events & EVENT_MOTH) audio.moth();
-      if (events & EVENT_DEPTH) audio.depth();
+      if (events & EVENT_FLARE) {
+        audio.flare();
+        renderer.addShake(5);
+      }
+      if (events & EVENT_BURN) audio.burn();
+      if (events & EVENT_COMBO && world.state.combo >= 5) audio.combo();
     }
   }
 
   function frame(now) {
     requestAnimationFrame(frame);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
+    frameDt = Math.min((now - last) / 1000, MAX_FRAME);
+    accumulator += frameDt;
     last = now;
     handleActions();
     if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
@@ -127,7 +122,7 @@ function runGame() {
     } else {
       accumulator = 0;
     }
-    renderer.draw(world.state, screen, best);
+    renderer.draw(world.state, screen, best, frameDt);
   }
 
   // Leaving the tab pauses a running game rather than letting the ember drain unseen.
@@ -142,5 +137,15 @@ function runGame() {
   requestAnimationFrame(frame);
 }
 
-if (shot) runShot(shot);
-else runGame();
+if (shot) {
+  // Staged scene for a screenshot: play the real rules forward, then paint twice.
+  const scene = stageShot(shot, world);
+  let painted = 0;
+  function paint() {
+    renderer.draw(world.state, scene.screen, 0, 1 / 60);
+    painted += 1;
+    if (painted < 2) requestAnimationFrame(paint);
+    else window.__shotReady = true;
+  }
+  requestAnimationFrame(paint);
+} else runGame();

@@ -1,112 +1,70 @@
 // Every tuning number and colour in one place. The playfield is a fixed 1280x720 logical area;
 // the renderer scales it to the window, so no rule below depends on the screen size.
 //
-// Ember Canal: you pilot a lantern-barge down a flooded canal at night, towing a fragile ember
-// that lights the water ahead. Rocks and reed walls close in as the canal narrows; glow-moths
-// restock the ember's light; deep dark pools slow you and eat light. The ember is the health
-// bar: when its glow runs out, the run ends. Speed is a choice — leaning into the current is
-// faster but harder to steer.
-
+// Ember Canal: pilot a lantern-barge down a drowned canal at night. The towed ember is the
+// health bar — it drains always, faster in dark pools, and a rock crack takes a bite at once.
+// Glow-moths feed it; catching them back to back builds a combo worth extra light and score.
+// Rare ember flares let the barge burn straight through one rock. Leaning into the current
+// (D / →) races the pace and the score at the cost of control.
 export const FIELD = { width: 1280, height: 720 };
-
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
 export const STEP = 1 / 60;
 
-/** The barge: a wide, slow hull that steers with a drift it must counter. */
-export const BARGE = {
-  width: 84,
-  height: 40,
-  speed: 300,
-  drift: 46,          // px/s the current pushes you sideways each second
-  steer: 620,         // px/s^2 of steering thrust
-  maxLean: 1,         // -1..1, how hard the current pulls while you lean into it
-};
+export const SPAWN_AHEAD = 420;
+export const FONT = '"Trebuchet MS", "Segoe UI", system-ui, sans-serif';
+export const BARGE = { width: 52, height: 34, steer: 320, drift: 26, maxLean: 1.4 };
 
-/** The ember: light is health. It drains constantly and faster in the dark pools. */
-export const EMBER = {
-  max: 100,
-  drain: 2.6,         // light per second, always
-  drainInDark: 9.5,   // extra light per second inside a dark pool
-  startLight: 78,     // where a fresh run begins
-};
+export const EMBER = { max: 100, startLight: 72, drain: 2.6, drainInDark: 11 };
 
-/** A glow-moth pickup: rests on the water, worth light and score. */
-export const MOTH = {
-  radius: 15,
-  speed: 120,
-  light: 26,
-  points: 25,
-  interval: 1.7,
-  intervalJitter: 1.1,
-};
-
-/** A rock: the hull cracks on one, each crack drains light at once. */
 export const ROCK = {
-  minRadius: 26,
-  maxRadius: 74,
-  speed: 210,
-  speedPerDepth: 26,
-  interval: 0.62,
-  intervalScale: 0.9,
-  minInterval: 0.2,
-  crackLight: 16,     // light lost per crack
-  dodgePoints: 2,
+  minRadius: 26, maxRadius: 62,
+  speed: 130, speedPerDepth: 55,
+  interval: 1.5, intervalScale: 0.93, minInterval: 0.55,
+  crackLight: 14,
 };
 
-/** A dark pool: a slow band of deep water that eats the ember's light. */
-export const POOL = {
-  minWidth: 220,
-  maxWidth: 520,
-  speed: 165,
-  interval: 5.2,
-  intervalJitter: 3,
-  points: 0,
-};
+export const MOTH = { radius: 12, light: 13, speed: 95, interval: 2.1, intervalJitter: 1.7 };
 
-/** A reed wall: a gap in a line of reeds; thread it or crack the hull. */
-export const REED = {
-  gapMin: 190,
-  gapMax: 330,
-  speed: 205,
-  interval: 4.4,
-  intervalScale: 0.93,
-  minInterval: 2.6,
-  stalkWidth: 26,
-};
+export const POOL = { minWidth: 150, maxWidth: 320, speed: 150, interval: 6.5, intervalJitter: 5 };
 
-/** Seconds per depth band; the canal narrows and quickens with each. */
+export const REED = { stalkWidth: 26, gapMin: 150, gapMax: 240, speed: 150, interval: 5.5, intervalScale: 0.94, minInterval: 2.6 };
+
+export const FLARE = { interval: 9, intervalJitter: 6, burnSeconds: 6 };
+
+export const COMBO = { window: 4, lightStep: 2, lightMax: 10, scoreStep: 25, scoreMax: 150 };
+
 export const DEPTH = { seconds: 14, max: 9 };
 
-/** How far ahead of the barge things spawn, and how long a run can last before the scene ends. */
-export const SPAWN_AHEAD = 90;
+export const SCORE = { distance: 1, moth: 100, rockDodge: 20, flareBurn: 40 };
 
-/** The light radius the ember casts, at full and at its floor. */
-export const LIGHT = { max: 430, min: 120 };
+export const LIGHT = { min: 150, max: 460 };
 
-export const SCORE = { moth: MOTH.points, rockDodge: ROCK.dodgePoints, distance: 1 };
+export const BEST_KEY = 'ember-canal-best';
 
+// A brighter night than most: the canal reads at a glance even in a small contact sheet, while
+// the pools and the far dark still hold the mood. The ember's warm colours sit against the
+// cool water, so the eye lands on the barge first, then the things ahead of it.
 export const PALETTE = {
-  backdrop: '#070a12',
-  water: '#0d1424',
-  waterDeep: '#0a0f1c',
-  poolDark: '#05070d',
-  reeds: '#173322',
-  rock: '#3c4356',
-  rockEdge: '#59627a',
-  barge: '#c98a3d',
-  bargeHull: '#8a5a26',
+  backdrop: '#0b1220',
+  water: '#1d3350',
+  waterStreaks: 'rgba(160, 210, 255, 0.07)',
+  waterLines: 'rgba(160, 210, 255, 0.05)',
+  rock: '#5b6472',
+  rockEdge: '#8a94a6',
+  rockShade: 'rgba(10, 16, 28, 0.45)',
+  moth: '#ffe08a',
+  mothWing: 'rgba(255, 224, 138, 0.55)',
+  poolDark: 'rgba(6, 10, 22, 0.72)',
+  reeds: '#2e4a3a',
+  reedBlades: 'rgba(190, 255, 200, 0.12)',
+  barge: '#7c5a3a',
+  bargeHull: '#5a3f26',
   ember: '#ffb347',
   emberCore: '#fff3d6',
-  moth: '#ffe9a8',
-  mothWing: '#c9b06a',
-  lightGlow: 'rgba(255, 179, 71, 0.16)',
+  danger: '#ff5d5d',
   text: '#f2ead8',
-  muted: '#7d8899',
-  panel: '#101828',
-  danger: '#e5534b',
+  muted: '#a8b4c8',
+  panel: 'rgba(12, 20, 36, 0.92)',
+  panelEdge: '#ffb347',
+  comboText: '#ffd166',
+  flareText: '#ff9d5c',
 };
-
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-
-/** Where the best run is kept between visits (this browser only). */
-export const BEST_KEY = 'ember-canal.best';
