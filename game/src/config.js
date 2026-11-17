@@ -44,8 +44,8 @@ export const BEST_KEY = 'ember-canal-best';
 // the pools and the far dark still hold the mood. The ember's warm colours sit against the
 // cool water, so the eye lands on the barge first, then the things ahead of it.
 export const PALETTE = {
-  backdrop: '#0b1220',
-  water: '#1d3350',
+  backdrop: '#101a2c',
+  water: '#2a4a72',
   waterStreaks: 'rgba(160, 210, 255, 0.07)',
   waterLines: 'rgba(160, 210, 255, 0.05)',
   rock: '#5b6472',
@@ -61,8 +61,8 @@ export const PALETTE = {
   ember: '#ffb347',
   emberCore: '#fff3d6',
   danger: '#ff5d5d',
-  text: '#f2ead8',
-  muted: '#a8b4c8',
+  text: '#ffffff',
+  muted: '#c8d4e8',
   panel: 'rgba(12, 20, 36, 0.92)',
   panelEdge: '#ffb347',
   comboText: '#ffd166',

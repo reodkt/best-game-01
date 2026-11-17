@@ -97,8 +97,12 @@ function runGame() {
       if (events & EVENT_CRACK) {
         audio.crack();
         renderer.addShake(8);
+        renderer.burst(world.state.barge.x + world.state.barge.width / 2, world.state.barge.y + world.state.barge.height / 2, 10, '#ff9d5c', 160);
       }
-      if (events & EVENT_MOTH) audio.moth();
+      if (events & EVENT_MOTH) {
+        audio.moth();
+        renderer.burst(world.state.barge.x + world.state.barge.width / 2, world.state.barge.y, 8, '#ffe08a', 120);
+      }
       if (events & EVENT_FLARE) {
         audio.flare();
         renderer.addShake(5);

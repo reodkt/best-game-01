@@ -59,8 +59,11 @@ export function createRenderer(canvas) {
   function text(value, x, y, size, color, align) {
     if (!fonts.has(size)) fonts.set(size, `${size}px ${FONT}`);
     context.font = fonts.get(size);
-    context.fillStyle = color;
     context.textAlign = align;
+    // A dark shadow under every glyph, so the HUD reads on any background.
+    context.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    context.fillText(value, x + 2, y + 2);
+    context.fillStyle = color;
     context.fillText(value, x, y);
   }
 
@@ -319,7 +322,31 @@ export function createRenderer(canvas) {
     drawLight(state);
     drawParticles(dt ?? 1 / 60);
     if (screen === SCREEN_TITLE) {
+      // The title screen must pop even in a small thumbnail: a large warm glow over the
+      // whole scene, a bright ember core, and a title drawn in full ember colour.
+      const cx = state.barge.x + state.barge.width / 2;
+      const cy = state.barge.y - 10;
+      const glow = context.createRadialGradient(cx, cy, 20, cx, cy, 420);
+      glow.addColorStop(0, 'rgba(255, 179, 71, 0.5)');
+      glow.addColorStop(0.5, 'rgba(255, 170, 60, 0.18)');
+      glow.addColorStop(1, 'rgba(255, 170, 60, 0)');
+      context.fillStyle = glow;
+      context.fillRect(0, 0, FIELD.width, FIELD.height);
+      // A ring of drifting motes around the barge, bright against the water.
+      for (let index = 0; index < 14; index += 1) {
+        const angle = state.elapsed * 0.4 + index * (Math.PI * 2 / 14);
+        const mx = cx + Math.cos(angle) * (90 + (index % 3) * 60);
+        const my = cy + Math.sin(angle * 1.3) * (60 + (index % 4) * 40);
+        context.fillStyle = index % 3 === 0 ? '#fff3d6' : PALETTE.moth;
+        context.beginPath();
+        context.arc(mx, my, 4, 0, Math.PI * 2);
+        context.fill();
+      }
+      context.save();
+      context.shadowColor = 'rgba(255, 179, 71, 1)';
+      context.shadowBlur = 40;
       drawPanel('Ember Canal', TITLE_LINES, 'Press Space or click to launch');
+      context.restore();
       return;
     }
     drawHud(state, best);
