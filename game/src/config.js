@@ -13,20 +13,20 @@ export const SPAWN_AHEAD = 420;
 export const FONT = '"Trebuchet MS", "Segoe UI", system-ui, sans-serif';
 export const BARGE = { width: 52, height: 34, steer: 320, drift: 26, maxLean: 1.4 };
 
-export const EMBER = { max: 100, startLight: 72, drain: 2.6, drainInDark: 11 };
+export const EMBER = { max: 100, startLight: 80, drain: 1.8, drainInDark: 6.5 };
 
 export const ROCK = {
   minRadius: 26, maxRadius: 62,
   speed: 130, speedPerDepth: 55,
   interval: 1.5, intervalScale: 0.93, minInterval: 0.55,
-  crackLight: 14,
+  crackLight: 10,
 };
 
-export const MOTH = { radius: 12, light: 13, speed: 95, interval: 2.1, intervalJitter: 1.7 };
+export const MOTH = { radius: 12, light: 13, speed: 95, interval: 1.6, intervalJitter: 1.4 };
 
 export const POOL = { minWidth: 150, maxWidth: 320, speed: 150, interval: 6.5, intervalJitter: 5 };
 
-export const REED = { stalkWidth: 26, gapMin: 150, gapMax: 240, speed: 150, interval: 5.5, intervalScale: 0.94, minInterval: 2.6 };
+export const REED = { stalkWidth: 26, gapMin: 180, gapMax: 280, speed: 150, interval: 5.5, intervalScale: 0.94, minInterval: 2.6 };
 
 export const FLARE = { interval: 9, intervalJitter: 6, burnSeconds: 6 };
 

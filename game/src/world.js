@@ -203,9 +203,12 @@ export function createWorld(random) {
     state.distance += pace * dt;
     state.score += Math.round(pace * dt * SCORE.distance * 0.01);
 
-    // Steering: thrust against a drift the current and the lean both widen.
+    // Steering: a gentle pull toward the canal's middle (the current centres the barge),
+    // widened by leaning — so a passive player drifts to safety, not into the far bank.
+    const mid = (FIELD.height - barge.height) / 2;
     const drift = BARGE.drift * (1 + Math.abs(lean) * BARGE.maxLean);
-    barge.y += drift * dt * (steer === 0 ? 1 : 0.35);
+    const toward = mid > barge.y ? 1 : -1;
+    barge.y += drift * dt * toward * (steer === 0 ? 1 : 0.35);
     barge.y += steer * BARGE.steer * dt * 1.6;
     barge.y = Math.min(FIELD.height - barge.height - 8, Math.max(8, barge.y));
     barge.lean = lean;
