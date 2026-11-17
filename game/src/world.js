@@ -1,88 +1,66 @@
-// The game's rules and state, with no drawing and no browser in it. The barge drifts down the
-// canal; rocks, reed walls and dark pools flow toward it (the world scrolls, the barge holds
-// near the left third and steers across the canal). The ember's light is health: it drains
-// always, faster in dark pools, and a rock crack takes a bite at once. Moths caught back to
-// back build a combo (extra light and score each catch, lost when the window lapses); a rare
-// ember flare burns for a few seconds and lets the barge smash through rocks for score.
+// The game's rules and state, with no drawing and no browser in it. The firefly moves freely
+// (the caller passes a direction vector each step); dew drops spawn and are collected by
+// touch; spiders chase lazily; vines grow and wither; blooms grant a shield or slow time.
 // step() advances one fixed step and returns what happened as bit flags, so the caller can
-// react without the world knowing about screens or sound. Nothing here allocates after
-// createWorld returns.
-import { BARGE, COMBO, DEPTH, EMBER, FIELD, FLARE, LIGHT, MOTH, POOL, REED, ROCK, SCORE, SPAWN_AHEAD } from './config.js';
+// react without the world knowing about screens or sound. Nothing allocates after createWorld.
+import { BLOOM, DROPS, FIELD, FLY, GARDENS, HEARTS, SCORE, SPIDER, VINE } from './config.js';
 
-export const KIND_ROCK = 0;
-export const KIND_MOTH = 1;
-export const KIND_POOL = 2;
-export const KIND_REED = 3;
-export const KIND_FLARE = 4;
+export const KIND_DROP = 0;
+export const KIND_SPIDER = 1;
+export const KIND_VINE = 2;
+export const KIND_SHIELD = 3;
+export const KIND_SLOW = 4;
 
-export const EVENT_CRACK = 1;
-export const EVENT_MOTH = 2;
+export const EVENT_COLLECT = 1;
+export const EVENT_HIT = 2;
 export const EVENT_OUT = 4;
-export const EVENT_DEPTH = 8;
-export const EVENT_FLARE = 16;
-export const EVENT_BURN = 32;
-export const EVENT_COMBO = 64;
-
-function overlaps(a, b) {
-  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-}
-
-/** Distance from a point to a circle, squared; a hull point inside the rock is a crack. */
-function pointInCircle(px, py, cx, cy, r) {
-  const dx = px - cx;
-  const dy = py - cy;
-  return dx * dx + dy * dy <= r * r;
-}
+export const EVENT_GARDEN = 8;
+export const EVENT_SHIELD = 16;
+export const EVENT_SLOW = 32;
 
 export function createWorld(random) {
-  const barge = { x: FIELD.width * 0.3, y: FIELD.height / 2, width: BARGE.width, height: BARGE.height, lean: 0 };
-  /** One pool of things, allocated once; rocks, moths, pools, flares and reeds all live here. */
+  const fly = { x: FIELD.width / 2, y: FIELD.height * 0.7, radius: FLY.radius };
   const things = [];
-  for (let index = 0; index < 120; index += 1) {
-    things.push({ active: false, kind: KIND_ROCK, x: 0, y: 0, width: 0, height: 0, speed: 0, radius: 0, gap: 0 });
+  for (let index = 0; index < 48; index += 1) {
+    things.push({ active: false, kind: KIND_DROP, x: 0, y: 0, radius: 0, born: 0, life: 0, wobble: 0 });
   }
   const state = {
-    barge,
+    fly,
     things,
-    light: EMBER.startLight,
+    hearts: HEARTS,
+    collected: 0,
+    needed: DROPS.need,
+    garden: 1,
     score: 0,
-    depth: 1,
-    distance: 0,
     elapsed: 0,
-    rockTimer: ROCK.interval,
-    mothTimer: MOTH.interval,
-    poolTimer: POOL.interval,
-    reedTimer: REED.interval,
-    flareTimer: FLARE.interval,
-    mothsCaught: 0,
-    cracks: 0,
-    combo: 0,
-    comboTimer: 0,
-    flareSeconds: 0,
-    rocksBurned: 0,
+    shieldSeconds: 0,
+    slowSeconds: 0,
+    invulnerable: 0,
+    dropTimer: DROPS.interval,
+    spiderTimer: SPIDER.interval,
+    vineTimer: VINE.interval,
+    bloomTimer: BLOOM.interval,
+    hitFlash: 0,
   };
 
   function reset() {
-    barge.x = FIELD.width * 0.3;
-    barge.y = FIELD.height / 2;
-    barge.lean = 0;
+    fly.x = FIELD.width / 2;
+    fly.y = FIELD.height * 0.7;
     for (const thing of things) thing.active = false;
-    state.light = EMBER.startLight;
+    state.hearts = HEARTS;
+    state.collected = 0;
+    state.needed = DROPS.need;
+    state.garden = 1;
     state.score = 0;
-    state.depth = 1;
-    state.distance = 0;
     state.elapsed = 0;
-    state.rockTimer = ROCK.interval;
-    state.mothTimer = MOTH.interval;
-    state.poolTimer = POOL.interval;
-    state.reedTimer = REED.interval;
-    state.flareTimer = FLARE.interval;
-    state.mothsCaught = 0;
-    state.cracks = 0;
-    state.combo = 0;
-    state.comboTimer = 0;
-    state.flareSeconds = 0;
-    state.rocksBurned = 0;
+    state.shieldSeconds = 0;
+    state.slowSeconds = 0;
+    state.invulnerable = 0;
+    state.dropTimer = DROPS.interval;
+    state.spiderTimer = SPIDER.interval;
+    state.vineTimer = VINE.interval;
+    state.bloomTimer = BLOOM.interval;
+    state.hitFlash = 0;
   }
 
   function freeThing() {
@@ -90,270 +68,238 @@ export function createWorld(random) {
     return null;
   }
 
-  function spawnRock() {
-    const thing = freeThing();
-    if (thing === null) return;
-    thing.active = true;
-    thing.kind = KIND_ROCK;
-    thing.radius = ROCK.minRadius + random() * (ROCK.maxRadius - ROCK.minRadius);
-    thing.width = thing.radius * 2;
-    thing.height = thing.radius * 2;
-    thing.x = FIELD.width + thing.radius + random() * SPAWN_AHEAD;
-    thing.y = random() * (FIELD.height - thing.radius * 2);
-    thing.speed = ROCK.speed + ROCK.speedPerDepth * (state.depth - 1) + random() * 60;
-  }
-
-  function spawnMoth() {
-    const thing = freeThing();
-    if (thing === null) return;
-    thing.active = true;
-    thing.kind = KIND_MOTH;
-    thing.radius = MOTH.radius;
-    thing.width = MOTH.radius * 2;
-    thing.height = MOTH.radius * 2;
-    thing.x = FIELD.width + MOTH.radius + random() * SPAWN_AHEAD;
-    thing.y = MOTH.radius + random() * (FIELD.height - MOTH.radius * 2);
-    thing.speed = MOTH.speed + random() * 50;
-  }
-
-  function spawnPool() {
-    const thing = freeThing();
-    if (thing === null) return;
-    thing.active = true;
-    thing.kind = KIND_POOL;
-    thing.width = POOL.minWidth + random() * (POOL.maxWidth - POOL.minWidth);
-    thing.height = FIELD.height;
-    thing.x = FIELD.width + thing.width / 2;
-    thing.y = 0;
-    thing.speed = POOL.speed;
-  }
-
-  function spawnReed() {
-    const thing = freeThing();
-    if (thing === null) return;
-    thing.active = true;
-    thing.kind = KIND_REED;
-    thing.gap = REED.gapMin + random() * (REED.gapMax - REED.gapMin);
-    thing.y = thing.gap / 2 + random() * (FIELD.height - thing.gap);
-    thing.width = REED.stalkWidth;
-    thing.height = FIELD.height;
-    thing.x = FIELD.width + REED.stalkWidth;
-    thing.speed = REED.speed + 20 * (state.depth - 1) + random() * 30;
-  }
-
-  /** A rare ember flare drifts by: catch it and rocks burn for a few seconds. */
-  function spawnFlare() {
-    const thing = freeThing();
-    if (thing === null) return;
-    thing.active = true;
-    thing.kind = KIND_FLARE;
-    thing.radius = 16;
-    thing.width = 32;
-    thing.height = 32;
-    thing.x = FIELD.width + thing.radius + random() * SPAWN_AHEAD;
-    thing.y = thing.radius + random() * (FIELD.height - thing.radius * 2);
-    thing.speed = 110 + random() * 40;
-  }
-
-  function rockInterval() {
-    return Math.max(ROCK.minInterval, ROCK.interval * ROCK.intervalScale ** (state.depth - 1));
-  }
-
-  function reedInterval() {
-    return Math.max(REED.minInterval, REED.interval * REED.intervalScale ** (state.depth - 1));
-  }
-
-  /** The gap a reed wall offers, as the band the barge must thread. */
-  function reedGap(thing) {
-    return { top: thing.y - thing.gap / 2, bottom: thing.y + thing.gap / 2 };
-  }
-
-  /** Is the barge inside a dark pool's band? */
-  function inPool() {
-    const cx = barge.x + barge.width / 2;
+  function countKind(kind) {
+    let count = 0;
     for (let index = 0; index < things.length; index += 1) {
-      const thing = things[index];
-      if (thing.active && thing.kind === KIND_POOL && cx > thing.x - thing.width / 2 && cx < thing.x + thing.width / 2) return true;
+      if (things[index].active && things[index].kind === kind) count += 1;
     }
-    return false;
+    return count;
   }
 
-  /** The ember's light radius right now: the deeper the run, the dimmer the floor. */
-  function lightRadius() {
-    const share = Math.max(0, state.light) / EMBER.max;
-    return LIGHT.min + (LIGHT.max - LIGHT.min) * share;
+  function spawnDrop() {
+    const thing = freeThing();
+    if (thing === null) return;
+    thing.active = true;
+    thing.kind = KIND_DROP;
+    thing.radius = DROPS.radius;
+    thing.x = 60 + random() * (FIELD.width - 120);
+    thing.y = 120 + random() * (FIELD.height - 200);
+    thing.born = state.elapsed;
+    thing.life = 14;
+    thing.wobble = random() * Math.PI * 2;
+  }
+
+  function spawnSpider() {
+    if (countKind(KIND_SPIDER) >= Math.min(SPIDER.maxPerGarden, 1 + state.garden)) return;
+    const thing = freeThing();
+    if (thing === null) return;
+    thing.active = true;
+    thing.kind = KIND_SPIDER;
+    thing.radius = SPIDER.radius;
+    // Enter from an edge, never on top of the fly.
+    const edge = Math.floor(random() * 4);
+    thing.x = edge === 0 ? -40 : edge === 1 ? FIELD.width + 40 : 80 + random() * (FIELD.width - 160);
+    thing.y = edge === 2 ? -40 : edge === 3 ? FIELD.height + 40 : 120 + random() * (FIELD.height - 240);
+    thing.born = state.elapsed;
+    thing.life = Infinity;
+    thing.wobble = random() * Math.PI * 2;
+  }
+
+  function spawnVine() {
+    if (countKind(KIND_VINE) >= Math.min(VINE.maxPerGarden, state.garden + 1)) return;
+    const thing = freeThing();
+    if (thing === null) return;
+    thing.active = true;
+    thing.kind = KIND_VINE;
+    thing.radius = 6;
+    thing.x = 120 + random() * (FIELD.width - 240);
+    thing.born = state.elapsed;
+    thing.life = VINE.lifeSeconds;
+    thing.wobble = random() * Math.PI * 2;
+  }
+
+  function spawnBloom() {
+    const thing = freeThing();
+    if (thing === null) return;
+    thing.active = true;
+    thing.kind = Math.floor(random() * 2) === 0 ? KIND_SHIELD : KIND_SLOW;
+    thing.radius = 18;
+    thing.x = 80 + random() * (FIELD.width - 160);
+    thing.y = 120 + random() * (FIELD.height - 220);
+    thing.born = state.elapsed;
+    thing.life = BLOOM.lifeSeconds;
+    thing.wobble = random() * Math.PI * 2;
+  }
+
+  function spiderSpeed() {
+    return SPIDER.speedBase + SPIDER.speedPerGarden * (state.garden - 1);
+  }
+
+  /** How far a vine has grown, 0..1, from its birth. */
+  function vineGrowth(thing) {
+    return Math.min(1, (state.elapsed - thing.born) / VINE.growSeconds);
   }
 
   /**
-   * One fixed step. `steer` is -1, 0 or 1 (up, hold, down); `lean` is -1..1, how hard the
-   * barge leans into the current — leaning speeds the run and the score but widens the drift.
-   * With `harmless` set (the title screen's backdrop) the canal flows but nothing touches.
+   * One fixed step. `dx` and `dy` are the move direction, each -1..1 (a vector, so a touch
+   * drag or an analog stick works as well as keys). `slowInput` scales spider speed only,
+   * never the fly: slow time helps you, not them.
    */
-  function step(dt, steer, lean, harmless) {
+  function step(dt, dx, dy, harmless) {
     let events = 0;
     state.elapsed += dt;
-    const depth = Math.min(DEPTH.max, 1 + Math.floor(state.elapsed / DEPTH.seconds));
-    if (depth !== state.depth) {
-      state.depth = depth;
-      events |= EVENT_DEPTH;
+    if (state.shieldSeconds > 0) state.shieldSeconds = Math.max(0, state.shieldSeconds - dt);
+    if (state.slowSeconds > 0) state.slowSeconds = Math.max(0, state.slowSeconds - dt);
+    if (state.invulnerable > 0) state.invulnerable = Math.max(0, state.invulnerable - dt);
+    if (state.hitFlash > 0) state.hitFlash = Math.max(0, state.hitFlash - dt * 3);
+
+    // The fly moves freely inside the field.
+    const length = Math.hypot(dx, dy) || 1;
+    const speed = FLY.speed * Math.min(1, length);
+    fly.x += (dx / length) * speed * dt;
+    fly.y += (dy / length) * speed * dt;
+    fly.x = Math.min(FIELD.width - fly.radius, Math.max(fly.radius, fly.x));
+    fly.y = Math.min(FIELD.height - fly.radius - 8, Math.max(fly.radius + 70, fly.y));
+
+    state.dropTimer -= dt;
+    if (state.dropTimer <= 0) {
+      if (countKind(KIND_DROP) < DROPS.maxOnField) spawnDrop();
+      state.dropTimer += DROPS.interval;
+    }
+    state.spiderTimer -= dt;
+    if (state.spiderTimer <= 0) {
+      spawnSpider();
+      state.spiderTimer += SPIDER.interval + random() * 2;
+    }
+    state.vineTimer -= dt;
+    if (state.vineTimer <= 0) {
+      spawnVine();
+      state.vineTimer += VINE.interval + random() * 3;
+    }
+    state.bloomTimer -= dt;
+    if (state.bloomTimer <= 0) {
+      spawnBloom();
+      state.bloomTimer += BLOOM.interval + random() * 5;
     }
 
-    // The run's pace: the current's base plus a bonus for leaning into it.
-    const pace = 150 + 60 * (state.depth - 1) + 130 * Math.max(0, lean);
-    state.distance += pace * dt;
-    state.score += Math.round(pace * dt * SCORE.distance * 0.01);
-
-    // Steering: a gentle pull toward the canal's middle (the current centres the barge),
-    // widened by leaning — so a passive player drifts to safety, not into the far bank.
-    const mid = (FIELD.height - barge.height) / 2;
-    const drift = BARGE.drift * (1 + Math.abs(lean) * BARGE.maxLean);
-    const toward = mid > barge.y ? 1 : -1;
-    barge.y += drift * dt * toward * (steer === 0 ? 1 : 0.35);
-    barge.y += steer * BARGE.steer * dt * 1.6;
-    barge.y = Math.min(FIELD.height - barge.height - 8, Math.max(8, barge.y));
-    barge.lean = lean;
-
-    // The ember always drains; a dark pool drains it hard.
-    state.light -= EMBER.drain * dt;
-    if (!harmless && inPool()) state.light -= EMBER.drainInDark * dt;
-
-    // The combo decays when no moth is caught within its window.
-    if (state.combo > 0) {
-      state.comboTimer -= dt;
-      if (state.comboTimer <= 0) state.combo = 0;
-    }
-    // The flare's burn counts down; while it burns rocks are fuel, not hazards.
-    if (state.flareSeconds > 0) state.flareSeconds = Math.max(0, state.flareSeconds - dt);
-
-    state.rockTimer -= dt;
-    if (state.rockTimer <= 0) {
-      spawnRock();
-      state.rockTimer += rockInterval();
-    }
-    state.mothTimer -= dt;
-    if (state.mothTimer <= 0) {
-      spawnMoth();
-      state.mothTimer += MOTH.interval + random() * MOTH.intervalJitter;
-    }
-    state.poolTimer -= dt;
-    if (state.poolTimer <= 0) {
-      spawnPool();
-      state.poolTimer += POOL.interval + random() * POOL.intervalJitter;
-    }
-    state.reedTimer -= dt;
-    if (state.reedTimer <= 0) {
-      spawnReed();
-      state.reedTimer += reedInterval();
-    }
-    state.flareTimer -= dt;
-    if (state.flareTimer <= 0) {
-      spawnFlare();
-      state.flareTimer += FLARE.interval + random() * FLARE.intervalJitter;
-    }
-
-    const left = barge.x;
-    const right = barge.x + barge.width;
-    const top = barge.y;
-    const bottom = barge.y + barge.height;
+    const spiderScale = state.slowSeconds > 0 ? 0.35 : 1;
 
     for (let index = 0; index < things.length; index += 1) {
       const thing = things[index];
       if (!thing.active) continue;
-      thing.x -= (thing.speed + pace * 0.4) * dt;
-      if (thing.x < -thing.width - 80) {
-        thing.active = false;
-        if (thing.kind === KIND_ROCK && !harmless) state.score += SCORE.rockDodge;
-        continue;
-      }
-      if (harmless) continue;
-
-      if (thing.kind === KIND_MOTH) {
-        const cx = thing.x;
-        const cy = thing.y;
-        if (pointInCircle(cx, cy, left, top, thing.radius) || pointInCircle(cx, cy, right, top, thing.radius) ||
-            pointInCircle(cx, cy, left, bottom, thing.radius) || pointInCircle(cx, cy, right, bottom, thing.radius) ||
-            pointInCircle(cx, cy, left + barge.width / 2, top + barge.height / 2, thing.radius + barge.width / 2)) {
+      if (thing.kind === KIND_DROP) {
+        // A dew drop bobs gently where it fell.
+        thing.y += Math.sin(state.elapsed * 2 + thing.wobble) * 8 * dt;
+        if (thing.life !== Infinity && state.elapsed - thing.born > thing.life) {
           thing.active = false;
-          state.mothsCaught += 1;
-          state.combo = Math.min(10, state.combo + 1);
-          state.comboTimer = COMBO.window;
-          const comboLight = Math.min(COMBO.lightMax, (state.combo - 1) * COMBO.lightStep);
-          const comboScore = Math.min(COMBO.scoreMax, (state.combo - 1) * COMBO.scoreStep);
-          state.light = Math.min(EMBER.max, state.light + MOTH.light + comboLight);
-          state.score += SCORE.moth + comboScore;
-          events |= EVENT_MOTH | (state.combo >= 3 ? EVENT_COMBO : 0);
+          continue;
         }
-      } else if (thing.kind === KIND_FLARE) {
-        const cx = thing.x;
-        const cy = thing.y;
-        if (pointInCircle(cx, cy, left, top, thing.radius) || pointInCircle(cx, cy, right, top, thing.radius) ||
-            pointInCircle(cx, cy, left, bottom, thing.radius) || pointInCircle(cx, cy, right, bottom, thing.radius)) {
+        const dx2 = thing.x - fly.x;
+        const dy2 = thing.y - fly.y;
+        if (!harmless && dx2 * dx2 + dy2 * dy2 < (thing.radius + fly.radius) ** 2) {
           thing.active = false;
-          state.flareSeconds = FLARE.burnSeconds;
-          events |= EVENT_FLARE;
-        }
-      } else if (thing.kind === KIND_ROCK) {
-        const cx = thing.x;
-        const cy = thing.y + thing.height / 2;
-        const corners = [[left, top], [right, top], [left, bottom], [right, bottom]];
-        let hit = false;
-        for (let corner = 0; corner < corners.length; corner += 1) {
-          if (pointInCircle(corners[corner][0], corners[corner][1], cx, cy, thing.radius)) {
-            hit = true;
-            break;
+          state.collected += 1;
+          state.score += SCORE.drop;
+          events |= EVENT_COLLECT;
+          if (state.collected >= state.needed) {
+            state.score += SCORE.gardenBonus;
+            state.garden += 1;
+            state.collected = 0;
+            state.needed = DROPS.need + state.garden * 2;
+            events |= EVENT_GARDEN;
+            if (state.garden > GARDENS) {
+              events |= EVENT_OUT;
+              break;
+            }
           }
         }
-        if (!hit) {
-          const nx = Math.min(Math.max(cx, left), right);
-          const ny = Math.min(Math.max(cy, top), bottom);
-          hit = pointInCircle(nx, ny, cx, cy, thing.radius);
+      } else if (thing.kind === KIND_SPIDER) {
+        // A lazy chase: toward the fly, with a slow sideways wobble.
+        const dx2 = fly.x - thing.x;
+        const dy2 = fly.y - thing.y;
+        const dist = Math.hypot(dx2, dy2) || 1;
+        const speed = spiderSpeed() * spiderScale;
+        thing.x += (dx2 / dist) * speed * dt + Math.cos(state.elapsed * 1.7 + thing.wobble) * 30 * dt;
+        thing.y += (dy2 / dist) * speed * dt + Math.sin(state.elapsed * 1.3 + thing.wobble) * 18 * dt;
+        thing.x = Math.min(FIELD.width - thing.radius, Math.max(thing.radius, thing.x));
+        thing.y = Math.min(FIELD.height - thing.radius, Math.max(thing.radius + 70, thing.y));
+        if (!harmless && state.invulnerable <= 0) {
+          const hitDist = thing.radius + fly.radius - 6;
+          const hx = thing.x - fly.x;
+          const hy = thing.y - fly.y;
+          if (hx * hx + hy * hy < hitDist * hitDist) {
+            if (state.shieldSeconds > 0) {
+              // The shield eats the hit and bounces the spider away.
+              state.shieldSeconds = 0;
+              thing.x -= (dx2 / dist) * 120;
+              thing.y -= (dy2 / dist) * 120;
+              events |= EVENT_SHIELD;
+            } else {
+              state.hearts -= 1;
+              state.invulnerable = 2;
+              state.hitFlash = 1;
+              events |= EVENT_HIT;
+              if (state.hearts <= 0) {
+                events |= EVENT_OUT;
+                break;
+              }
+            }
+          }
         }
-        if (hit) {
+      } else if (thing.kind === KIND_VINE) {
+        if (thing.life !== Infinity && state.elapsed - thing.born > thing.life) {
           thing.active = false;
-          if (state.flareSeconds > 0) {
-            // Burning: the rock is fuel. A little light, a little score, no crack.
-            state.light = Math.min(EMBER.max, state.light + 4);
-            state.score += SCORE.flareBurn;
-            state.rocksBurned += 1;
-            events |= EVENT_BURN;
+          continue;
+        }
+        if (!harmless && state.invulnerable <= 0) {
+          const growth = vineGrowth(thing);
+          const height = growth * 260;
+          const top = 70;
+          const bottom = FIELD.height - 8;
+          const half = VINE.width / 2 + 4;
+          // The vine grows from both the ceiling and the floor at its x.
+          const nearX = Math.abs(fly.x - thing.x) < half + fly.radius;
+          if (nearX && (fly.y - fly.radius < top + height || fly.y + fly.radius > bottom - height)) {
+            if (state.shieldSeconds > 0) {
+              state.shieldSeconds = 0;
+              state.invulnerable = 1;
+              events |= EVENT_SHIELD;
+            } else {
+              state.hearts -= 1;
+              state.invulnerable = 2;
+              state.hitFlash = 1;
+              events |= EVENT_HIT;
+              if (state.hearts <= 0) {
+                events |= EVENT_OUT;
+                break;
+              }
+            }
+          }
+        }
+      } else if (thing.kind === KIND_SHIELD || thing.kind === KIND_SLOW) {
+        if (thing.life !== Infinity && state.elapsed - thing.born > thing.life) {
+          thing.active = false;
+          continue;
+        }
+        const dx2 = thing.x - fly.x;
+        const dy2 = thing.y - fly.y;
+        if (!harmless && dx2 * dx2 + dy2 * dy2 < (thing.radius + fly.radius) ** 2) {
+          thing.active = false;
+          state.score += SCORE.bloom;
+          if (thing.kind === KIND_SHIELD) {
+            state.shieldSeconds = BLOOM.shieldSeconds;
+            events |= EVENT_SHIELD;
           } else {
-            state.light -= ROCK.crackLight;
-            state.cracks += 1;
-            events |= EVENT_CRACK;
-            if (state.light <= 0) {
-              state.light = 0;
-              events |= EVENT_OUT;
-              break;
-            }
-          }
-        }
-      } else if (thing.kind === KIND_REED) {
-        const gap = reedGap(thing);
-        const bargeTop = top;
-        const bargeBottom = bottom;
-        if (right > thing.x && left < thing.x + thing.width) {
-          if (bargeTop < gap.top || bargeBottom > gap.bottom) {
-            thing.active = false;
-            state.light -= ROCK.crackLight * 1.4;
-            state.cracks += 1;
-            events |= EVENT_CRACK;
-            if (state.light <= 0) {
-              state.light = 0;
-              events |= EVENT_OUT;
-              break;
-            }
+            state.slowSeconds = BLOOM.slowSeconds;
+            events |= EVENT_SLOW;
           }
         }
       }
     }
 
-    if (!harmless && state.light <= 0) {
-      state.light = 0;
-      events |= EVENT_OUT;
-    }
     return events;
   }
 
   reset();
-  return { state, reset, step, lightRadius, inPool, reedGap };
+  return { state, reset, step, vineGrowth, spiderSpeed };
 }

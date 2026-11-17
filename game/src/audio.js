@@ -36,7 +36,7 @@ export function createAudio() {
     oscillator.stop(when + seconds + 0.02);
   }
 
-  /** A sliding tone, for the crack and the end: the pitch falls as the light goes. */
+  /** A sliding tone, for hits and the end. */
   function slide(fromHertz, toHertz, seconds, peak) {
     if (muted || !ensure()) return;
     if (context.state === 'suspended') context.resume();
@@ -56,45 +56,49 @@ export function createAudio() {
   }
 
   return {
-    /** A moth caught: a bright two-note chirp. */
-    moth() {
-      tone(880, 0.09, 0.5, 'triangle');
-      if (!muted) setTimeout(() => tone(1320, 0.12, 0.4, 'triangle'), 70);
+    /** A dew drop collected: a bright water-drop plink, higher with each quick catch. */
+    collect() {
+      tone(880 + Math.random() * 220, 0.1, 0.4, 'sine');
+      if (!muted) setTimeout(() => tone(1320, 0.1, 0.25, 'sine'), 60);
     },
-    /** The hull cracks on a rock: a low, falling knock. */
-    crack() {
-      slide(220, 60, 0.28, 0.6);
+    /** Hit by a spider or a vine: a low, harsh knock. */
+    hit() {
+      slide(220, 60, 0.3, 0.6);
     },
-    /** A depth band begins: a soft rising chime. */
-    depth() {
-      tone(520, 0.14, 0.3, 'sine');
-      if (!muted) setTimeout(() => tone(780, 0.18, 0.25, 'sine'), 90);
+    /** A shield bloom taken: a warm chime. */
+    shield() {
+      tone(660, 0.12, 0.35, 'triangle');
+      if (!muted) setTimeout(() => tone(990, 0.16, 0.3, 'triangle'), 80);
     },
-    /** The ember goes out: a long fall. */
+    /** A slow bloom taken: a falling, dreamy glide. */
+    slow() {
+      slide(900, 300, 0.4, 0.3);
+    },
+    /** A garden completed: a rising three-note fanfare. */
+    garden() {
+      tone(523, 0.12, 0.35, 'triangle');
+      if (!muted) {
+        setTimeout(() => tone(659, 0.12, 0.35, 'triangle'), 110);
+        setTimeout(() => tone(784, 0.2, 0.35, 'triangle'), 220);
+      }
+    },
+    /** Caught: a long fall. */
     out() {
       slide(330, 40, 0.9, 0.7);
+    },
+    /** Dawn breaks: a bright rising arpeggio. */
+    win() {
+      tone(523, 0.14, 0.35, 'triangle');
+      if (!muted) {
+        setTimeout(() => tone(659, 0.14, 0.35, 'triangle'), 120);
+        setTimeout(() => tone(784, 0.14, 0.35, 'triangle'), 240);
+        setTimeout(() => tone(1046, 0.3, 0.4, 'triangle'), 360);
+      }
     },
     /** The run starts: a short rising pair. */
     start() {
       tone(440, 0.1, 0.35, 'triangle');
       if (!muted) setTimeout(() => tone(660, 0.14, 0.3, 'triangle'), 80);
-    },
-    /** An ember flare caught: a rising fire whoosh. */
-    flare() {
-      slide(300, 900, 0.35, 0.5);
-    },
-    /** A rock burns as fuel: a short crackle. */
-    burn() {
-      tone(180, 0.12, 0.4, 'sawtooth');
-      if (!muted) setTimeout(() => tone(240, 0.1, 0.3, 'sawtooth'), 60);
-    },
-    /** A five-combo streak: a bright arpeggio. */
-    combo() {
-      tone(660, 0.08, 0.35, 'triangle');
-      if (!muted) {
-        setTimeout(() => tone(880, 0.08, 0.35, 'triangle'), 60);
-        setTimeout(() => tone(1320, 0.12, 0.35, 'triangle'), 120);
-      }
     },
     toggleMute() {
       muted = !muted;

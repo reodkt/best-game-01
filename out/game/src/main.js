@@ -1,18 +1,18 @@
 // Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s steps
-// (several in a slow frame, none in a fast one), and the renderer paints what is there. The game
-// moves between four screens: title, play, paused and game over.
+// (several in a slow frame, none in a fast one), and the renderer paints what is there. The
+// game moves between five screens: title, play, paused, game over and the dawn win screen.
 //
-// ?seed=N fixes the canal's pattern. ?shot=start|play|late|end (with &seed=N) stages that scene
-// instead of running the loop, paints it twice and sets window.__shotReady for a screenshot.
-import { BEST_KEY, EMBER, STEP } from './config.js';
+// ?seed=N fixes the garden's pattern. ?shot=start|play|late|end stages that scene instead of
+// running the loop, paints it twice and sets window.__shotReady for a screenshot.
+import { BEST_KEY, GARDENS, STEP } from './config.js';
 import { createRandom } from './random.js';
-import { createWorld, EVENT_BURN, EVENT_COMBO, EVENT_CRACK, EVENT_FLARE, EVENT_MOTH, EVENT_OUT } from './world.js';
+import { createWorld, EVENT_COLLECT, EVENT_GARDEN, EVENT_HIT, EVENT_OUT, EVENT_SHIELD, EVENT_SLOW } from './world.js';
 import { ACTION_CONFIRM, ACTION_MUTE, ACTION_PAUSE, createInput } from './input.js';
 import { createAudio } from './audio.js';
-import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WIN } from './render.js';
 import { stageShot } from './shots.js';
 
-/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
+/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped. */
 const MAX_FRAME = 0.25;
 
 const params = new URLSearchParams(window.location.search);
@@ -43,14 +43,14 @@ function saveBest(value) {
 }
 
 function runGame() {
-  const input = createInput(canvas);
+  const input = createInput(canvas, renderer.toField);
   let screen = SCREEN_TITLE;
   let best = readBest();
   let accumulator = 0;
   let last = performance.now();
   let frameDt = 1 / 60;
 
-  // Screen readers (and anyone watching the page's text) hear the screen changes and each event.
+  // Screen readers (and anyone watching the page's text) hear the screen changes and events.
   function announce(message) {
     status.textContent = message;
   }
@@ -60,18 +60,20 @@ function runGame() {
     accumulator = 0;
     screen = SCREEN_PLAY;
     audio.start();
-    announce(`Running. Ember at ${Math.round(world.state.light)} of ${EMBER.max}.`);
+    announce(`Garden 1 of ${GARDENS}. Collect the dew drops.`);
   }
 
-  function endGame() {
-    screen = SCREEN_OVER;
-    audio.out();
-    renderer.addShake(14);
+  function endGame(win) {
+    screen = win ? SCREEN_WIN : SCREEN_OVER;
+    if (win) audio.win();
+    else audio.out();
     if (world.state.score > best) {
       best = world.state.score;
       saveBest(best);
     }
-    announce(`The ember went out. Score ${world.state.score}. Best ${best}.`);
+    announce(win
+      ? `Dawn breaks. You win with ${world.state.score} points.`
+      : `Caught. Score ${world.state.score}. Best ${best}.`);
   }
 
   function handleActions() {
@@ -80,31 +82,29 @@ function runGame() {
       const muted = audio.toggleMute();
       announce(muted ? 'Muted.' : 'Sound on.');
     }
-    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER)) startGame();
+    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER || screen === SCREEN_WIN)) startGame();
     else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
       screen = SCREEN_PAUSED;
       announce('Paused.');
     } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
       screen = SCREEN_PLAY;
-      announce('Running.');
+      announce('Playing.');
     }
   }
 
   function step() {
-    const events = world.step(STEP, input.direction(), input.lean(), false);
-    if (events & EVENT_OUT) endGame();
+    const dir = input.direction();
+    const events = world.step(STEP, dir.dx, dir.dy, false);
+    if (events & EVENT_OUT) endGame(world.state.garden > GARDENS);
     else {
-      if (events & EVENT_CRACK) {
-        audio.crack();
-        renderer.addShake(8);
+      if (events & EVENT_COLLECT) audio.collect();
+      if (events & EVENT_HIT) {
+        audio.hit();
+        renderer.addShake?.(10);
       }
-      if (events & EVENT_MOTH) audio.moth();
-      if (events & EVENT_FLARE) {
-        audio.flare();
-        renderer.addShake(5);
-      }
-      if (events & EVENT_BURN) audio.burn();
-      if (events & EVENT_COMBO && world.state.combo >= 5) audio.combo();
+      if (events & EVENT_SHIELD) audio.shield();
+      if (events & EVENT_SLOW) audio.slow();
+      if (events & EVENT_GARDEN) audio.garden();
     }
   }
 
@@ -114,18 +114,20 @@ function runGame() {
     accumulator += frameDt;
     last = now;
     handleActions();
-    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
-      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
+    if (screen === SCREEN_PLAY) {
+      while (accumulator >= STEP && screen === SCREEN_PLAY) {
         step();
         accumulator -= STEP;
       }
     } else {
       accumulator = 0;
+      // The title screen still breathes: the world idles so the garden moves behind the panel.
+      if (screen === SCREEN_TITLE) world.step(STEP, 0, 0, true);
     }
     renderer.draw(world.state, screen, best, frameDt);
   }
 
-  // Leaving the tab pauses a running game rather than letting the ember drain unseen.
+  // Leaving the tab pauses a running game rather than letting the spiders close in unseen.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && screen === SCREEN_PLAY) {
       screen = SCREEN_PAUSED;
@@ -133,7 +135,7 @@ function runGame() {
     }
   });
 
-  announce('Ember Canal. Press Space or click to launch.');
+  announce('Firefly Garden. Tap, click or press Space to begin.');
   requestAnimationFrame(frame);
 }
 

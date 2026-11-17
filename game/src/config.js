@@ -1,70 +1,59 @@
 // Every tuning number and colour in one place. The playfield is a fixed 1280x720 logical area;
 // the renderer scales it to the window, so no rule below depends on the screen size.
 //
-// Ember Canal: pilot a lantern-barge down a drowned canal at night. The towed ember is the
-// health bar — it drains always, faster in dark pools, and a rock crack takes a bite at once.
-// Glow-moths feed it; catching them back to back builds a combo worth extra light and score.
-// Rare ember flares let the barge burn straight through one rock. Leaning into the current
-// (D / →) races the pace and the score at the cost of control.
+// FIREFLY GARDEN: a bright night garden. You are a firefly — move freely in all four
+// directions (WASD / arrows / drag anywhere on touch). Collect glowing dew drops to fill the
+// jar before dawn; avoid spiders that patrol and thorn vines that grow. A golden bloom is a
+// shield; a blue bloom slows time for a while. Three hearts, three gardens, each busier than
+// the last. Everything is big, bright and readable at a glance.
 export const FIELD = { width: 1280, height: 720 };
 export const STEP = 1 / 60;
 
-export const SPAWN_AHEAD = 420;
+export const FLY = { radius: 22, speed: 340 };
+
+export const DROPS = { radius: 14, need: 12, interval: 1.1, maxOnField: 7 };
+
+export const SPIDER = { radius: 26, speedBase: 120, speedPerGarden: 45, interval: 4, maxPerGarden: 5 };
+
+export const VINE = { interval: 5, growSeconds: 2.5, lifeSeconds: 9, width: 46, maxPerGarden: 4 };
+
+export const BLOOM = { interval: 9, shieldSeconds: 5, slowSeconds: 4, lifeSeconds: 8 };
+
+export const HEARTS = 3;
+export const GARDENS = 3;
+
+export const SCORE = { drop: 100, gardenBonus: 500, bloom: 50 };
+
+export const BEST_KEY = 'firefly-garden-best';
+
 export const FONT = '"Trebuchet MS", "Segoe UI", system-ui, sans-serif';
-export const BARGE = { width: 52, height: 34, steer: 320, drift: 26, maxLean: 1.4 };
 
-export const EMBER = { max: 100, startLight: 80, drain: 1.8, drainInDark: 6.5 };
-
-export const ROCK = {
-  minRadius: 26, maxRadius: 62,
-  speed: 130, speedPerDepth: 55,
-  interval: 1.5, intervalScale: 0.93, minInterval: 0.55,
-  crackLight: 10,
-};
-
-export const MOTH = { radius: 12, light: 13, speed: 95, interval: 1.6, intervalJitter: 1.4 };
-
-export const POOL = { minWidth: 150, maxWidth: 320, speed: 150, interval: 6.5, intervalJitter: 5 };
-
-export const REED = { stalkWidth: 26, gapMin: 180, gapMax: 280, speed: 150, interval: 5.5, intervalScale: 0.94, minInterval: 2.6 };
-
-export const FLARE = { interval: 9, intervalJitter: 6, burnSeconds: 6 };
-
-export const COMBO = { window: 4, lightStep: 2, lightMax: 10, scoreStep: 25, scoreMax: 150 };
-
-export const DEPTH = { seconds: 14, max: 9 };
-
-export const SCORE = { distance: 1, moth: 100, rockDodge: 20, flareBurn: 40 };
-
-export const LIGHT = { min: 150, max: 460 };
-
-export const BEST_KEY = 'ember-canal-best';
-
-// A brighter night than most: the canal reads at a glance even in a small contact sheet, while
-// the pools and the far dark still hold the mood. The ember's warm colours sit against the
-// cool water, so the eye lands on the barge first, then the things ahead of it.
+// A bright night: deep teal sky, warm glows, everything outlined so it reads at a glance.
 export const PALETTE = {
-  backdrop: '#101a2c',
-  water: '#2a4a72',
-  waterStreaks: 'rgba(160, 210, 255, 0.07)',
-  waterLines: 'rgba(160, 210, 255, 0.05)',
-  rock: '#5b6472',
-  rockEdge: '#8a94a6',
-  rockShade: 'rgba(10, 16, 28, 0.45)',
-  moth: '#ffe08a',
-  mothWing: 'rgba(255, 224, 138, 0.55)',
-  poolDark: 'rgba(6, 10, 22, 0.72)',
-  reeds: '#2e4a3a',
-  reedBlades: 'rgba(190, 255, 200, 0.12)',
-  barge: '#7c5a3a',
-  bargeHull: '#5a3f26',
-  ember: '#ffb347',
-  emberCore: '#fff3d6',
-  danger: '#ff5d5d',
+  sky: '#1c4d5e',
+  skyGlow: '#2a6b7d',
+  grass: '#2e7d4f',
+  grassDark: '#256843',
+  blades: 'rgba(140, 230, 170, 0.35)',
+  drop: '#7fe3ff',
+  dropCore: '#e8fbff',
+  spider: '#3a2a3f',
+  spiderLegs: '#241a28',
+  spiderEyes: '#ff5d5d',
+  vine: '#3f8f3a',
+  vineThorn: '#1f5426',
+  bloomGold: '#ffd166',
+  bloomBlue: '#7fb8ff',
+  fly: '#ffe066',
+  flyWing: 'rgba(255, 255, 255, 0.85)',
+  flyGlow: 'rgba(255, 224, 102, 0.35)',
+  heart: '#ff6b81',
+  heartEmpty: 'rgba(255, 255, 255, 0.25)',
   text: '#ffffff',
-  muted: '#c8d4e8',
-  panel: 'rgba(12, 20, 36, 0.92)',
-  panelEdge: '#ffb347',
-  comboText: '#ffd166',
-  flareText: '#ff9d5c',
+  muted: '#d7f0f5',
+  panel: 'rgba(10, 40, 52, 0.92)',
+  panelEdge: '#ffd166',
+  danger: '#ff5d5d',
+  shieldRing: 'rgba(255, 209, 102, 0.8)',
+  slowTint: 'rgba(127, 184, 255, 0.14)',
 };

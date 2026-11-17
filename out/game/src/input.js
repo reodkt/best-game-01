@@ -1,6 +1,6 @@
-// Keyboard and pointer input. Held keys give a steering direction and a lean; one-shot presses
-// (start, restart, pause, mute) are queued as bit flags and taken once by the loop, so a press
-// between two frames is never lost and never counted twice.
+// Keyboard and pointer input. Held keys give a direction vector; a touch drag or mouse drag
+// anywhere on the canvas moves the firefly toward the pointer (mobile-friendly). One-shot
+// presses (start, restart, pause, mute) are queued as bit flags and taken once by the loop.
 
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
@@ -14,12 +14,14 @@ const CONFIRM = new Set(['Space', 'Enter']);
 const PAUSE = new Set(['KeyP', 'Escape']);
 const MUTE = new Set(['KeyM']);
 
-export function createInput(target) {
+export function createInput(target, canvasToField) {
   let up = false;
   let down = false;
   let left = false;
   let right = false;
   let actions = 0;
+  // Pointer drag: while pressed, the fly steers toward the pointer (mapped to field coords).
+  let pointer = null;
 
   window.addEventListener('keydown', (event) => {
     if (UP.has(event.code)) up = true;
@@ -47,23 +49,38 @@ export function createInput(target) {
     down = false;
     left = false;
     right = false;
-  });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
-  });
-  target.addEventListener('pointermove', (event) => {
-    // Pointer steering: the barge follows the pointer's height while it is over the canvas.
-    target.__pointerY = event.clientY;
+    pointer = null;
   });
 
+  function toField(event) {
+    if (!canvasToField) return null;
+    return canvasToField(event.clientX, event.clientY);
+  }
+  target.addEventListener('pointerdown', (event) => {
+    actions |= ACTION_CONFIRM;
+    pointer = toField(event);
+    target.setPointerCapture?.(event.pointerId);
+  });
+  target.addEventListener('pointermove', (event) => {
+    if (pointer !== null) pointer = toField(event);
+  });
+  const release = () => {
+    pointer = null;
+  };
+  target.addEventListener('pointerup', release);
+  target.addEventListener('pointercancel', release);
+
   return {
-    /** -1 for up, 1 for down, 0 for neither or both. */
+    /** The move direction as a vector: keys give -1/0/1 per axis; a drag steers toward the pointer. */
     direction() {
-      return (down ? 1 : 0) - (up ? 1 : 0);
-    },
-    /** -1..1: leaning back slows the pace, leaning in speeds it. */
-    lean() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
+      if (pointer !== null) {
+        const dx = pointer.x - (canvasToField ? canvasToField().__x : 0);
+        const dy = pointer.y - (canvasToField ? canvasToField().__y : 0);
+        const dist = Math.hypot(dx, dy);
+        if (dist > 24) return { dx: dx / dist, dy: dy / dist };
+        return { dx: 0, dy: 0 };
+      }
+      return { dx: (right ? 1 : 0) - (left ? 1 : 0), dy: (down ? 1 : 0) - (up ? 1 : 0) };
     },
     /** The one-shot presses since the last call, as ACTION_* flags. */
     takeActions() {

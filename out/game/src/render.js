@@ -1,21 +1,17 @@
-// Drawing only: the world's state and the current screen in, pixels out. The 1280x720 playfield
-// is scaled to fit the window and centred, the margin filled with the backdrop colour. The
-// ember's light is a radial gradient over a canal that stays readable on its own — the scene
-// must read at a glance even where the light does not reach. Behind everything, two parallax
-// layers of far shore and near reeds scroll at different speeds to sell the depth. Particles
-// (moth dust, crack splinters, burn sparks) are drawn from a fixed pool; text that holds a
-// number is rebuilt only when the number changes, so a frame allocates nothing.
-import { BARGE, DEPTH, EMBER, FIELD, FONT, LIGHT, PALETTE } from './config.js';
-import { KIND_FLARE, KIND_MOTH, KIND_POOL, KIND_REED, KIND_ROCK } from './world.js';
+// Drawing only: the world's state and the current screen in, pixels out. Everything is big,
+// bright and outlined so the scene reads at a glance — a firefly with a warm glow, glowing
+// dew drops, spiders with red eyes, vines with thorns, blooms with a pulsing halo. The
+// 1280x720 playfield is scaled to fit the window and centred.
+import { BLOOM, FIELD, FONT, GARDENS, HEARTS, PALETTE, VINE } from './config.js';
+import { KIND_DROP, KIND_SHIELD, KIND_SLOW, KIND_SPIDER, KIND_VINE } from './world.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
 export const SCREEN_PAUSED = 'paused';
 export const SCREEN_OVER = 'over';
+export const SCREEN_WIN = 'win';
 
-const PANEL = { width: 660, top: 170, line: 38, bottom: 80 };
-const HULL_MARKS = 5;
-const PARTICLES = 64;
+const PANEL = { width: 680, top: 170, line: 40, bottom: 84 };
 
 function cachedLabel(prefix) {
   let value = -1;
@@ -33,16 +29,10 @@ export function createRenderer(canvas) {
   const context = canvas.getContext('2d');
   const view = { scale: 1, x: 0, y: 0 };
   const scoreLabel = cachedLabel('Score ');
-  const depthLabel = cachedLabel('Depth ');
-  const lightLabel = cachedLabel('Ember ');
+  const gardenLabel = cachedLabel('Garden ');
+  const jarLabel = cachedLabel('');
   const finalLabel = cachedLabel('Score ');
   const bestLabel = cachedLabel('Best ');
-  const comboLabel = cachedLabel('Combo x');
-  const particles = [];
-  for (let index = 0; index < PARTICLES; index += 1) {
-    particles.push({ life: 0, x: 0, y: 0, vx: 0, vy: 0, size: 2, colour: PALETTE.ember });
-  }
-  let shake = 0;
 
   function resize() {
     const ratio = window.devicePixelRatio || 1;
@@ -55,148 +45,136 @@ export function createRenderer(canvas) {
     view.y = (height - FIELD.height * view.scale) / 2;
   }
 
+  /** Map screen pixels to field coordinates, and expose the fly's field position for input. */
+  function toField(clientX, clientY) {
+    return {
+      x: (clientX - view.x) / view.scale,
+      y: (clientY - view.y) / view.scale,
+    };
+  }
+
   const fonts = new Map();
   function text(value, x, y, size, color, align) {
     if (!fonts.has(size)) fonts.set(size, `${size}px ${FONT}`);
     context.font = fonts.get(size);
-    context.fillStyle = color;
     context.textAlign = align;
+    context.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    context.fillText(value, x + 2, y + 2);
+    context.fillStyle = color;
     context.fillText(value, x, y);
   }
 
-  /** Spawn a burst of particles at a point. `count` of the pool's slots light up. */
-  function burst(x, y, count, colour, speed) {
-    for (let index = 0; index < PARTICLES && count > 0; index += 1) {
-      const p = particles[index];
-      if (p.life > 0) continue;
-      count -= 1;
-      p.life = 0.4 + Math.random() * 0.4;
-      p.x = x;
-      p.y = y;
-      const angle = Math.random() * Math.PI * 2;
-      p.vx = Math.cos(angle) * speed * (0.4 + Math.random() * 0.6);
-      p.vy = Math.sin(angle) * speed * (0.4 + Math.random() * 0.6);
-      p.size = 2 + Math.random() * 3;
-      p.colour = colour;
-    }
-  }
-
-  function drawParticles(dt) {
-    for (let index = 0; index < PARTICLES; index += 1) {
-      const p = particles[index];
-      if (p.life <= 0) continue;
-      p.life -= dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.vy += 60 * dt;
-      context.globalAlpha = Math.max(0, Math.min(1, p.life * 2));
-      context.fillStyle = p.colour;
-      context.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
-    }
-    context.globalAlpha = 1;
-  }
-
-  /** Far shore silhouettes (slow) and near reed tufts (fast), two parallax layers. */
-  function drawParallax(state) {
-    const far = (state.distance * 0.25) % 320;
-    context.fillStyle = 'rgba(40, 62, 92, 0.55)';
-    for (let index = -1; index < 5; index += 1) {
-      const x = index * 320 - far;
-      context.fillRect(x, 40, 190, 26);
-      context.fillRect(x + 220, 70, 130, 18);
-      context.fillRect(x + 90, 620, 210, 30);
-      context.fillRect(x + 260, 648, 120, 20);
-    }
-    const near = (state.distance * 0.85) % 260;
-    context.fillStyle = 'rgba(30, 48, 44, 0.75)';
-    for (let index = -1; index < 6; index += 1) {
-      const x = index * 260 - near;
-      context.fillRect(x, 690, 150, 30);
-      context.fillRect(x + 170, 0, 110, 24);
-    }
-  }
-
-  /** Water, with faint current lines that scroll to sell the pace. */
-  function drawWater(state) {
-    context.fillStyle = PALETTE.water;
+  /** The garden backdrop: sky above, grass below, and soft glows that keep it bright. */
+  function drawBackdrop(state) {
+    const sky = context.createLinearGradient(0, 0, 0, FIELD.height);
+    sky.addColorStop(0, PALETTE.skyGlow);
+    sky.addColorStop(0.45, PALETTE.sky);
+    sky.addColorStop(1, PALETTE.grass);
+    context.fillStyle = sky;
     context.fillRect(0, 0, FIELD.width, FIELD.height);
-    context.strokeStyle = PALETTE.waterLines;
-    context.lineWidth = 2;
-    const offset = (state.distance * 0.35) % 64;
+    // Grass blades along the bottom, in two depths.
+    context.strokeStyle = PALETTE.blades;
+    context.lineWidth = 3;
+    const sway = state.elapsed * 1.2;
     context.beginPath();
-    for (let line = 0; line < 9; line += 1) {
-      const y = 40 + line * 80;
-      context.moveTo(0, y);
-      context.lineTo(FIELD.width, y);
+    for (let blade = 0; blade < 40; blade += 1) {
+      const x = blade * 32 + 8;
+      const swayX = Math.sin(sway + blade) * 6;
+      context.moveTo(x, FIELD.height);
+      context.quadraticCurveTo(x + swayX, FIELD.height - 40, x + swayX * 2, FIELD.height - 72);
     }
     context.stroke();
-    context.fillStyle = PALETTE.waterStreaks;
-    for (let streak = 0; streak < 8; streak += 1) {
-      const y = 90 + ((streak * 131 + offset * 3) % (FIELD.height - 160));
-      context.fillRect((streak * 271 + offset * 9) % FIELD.width, y, 110, 4);
-    }
-    drawParallax(state);
+    // A soft moon glow top-right keeps the upper field from reading dark.
+    const moon = context.createRadialGradient(FIELD.width - 140, 90, 20, FIELD.width - 140, 90, 260);
+    moon.addColorStop(0, 'rgba(255, 255, 240, 0.35)');
+    moon.addColorStop(1, 'rgba(255, 255, 240, 0)');
+    context.fillStyle = moon;
+    context.fillRect(0, 0, FIELD.width, FIELD.height);
   }
 
   function drawThings(state) {
-    const things = state.things;
-    for (let index = 0; index < things.length; index += 1) {
-      const thing = things[index];
+    for (let index = 0; index < state.things.length; index += 1) {
+      const thing = state.things[index];
       if (!thing.active) continue;
-      if (thing.kind === KIND_ROCK) {
-        const cy = thing.y + thing.height / 2;
-        context.fillStyle = PALETTE.rock;
+      if (thing.kind === KIND_DROP) {
+        const pulse = 1 + Math.sin(state.elapsed * 4 + thing.wobble) * 0.15;
+        context.fillStyle = 'rgba(127, 227, 255, 0.25)';
         context.beginPath();
-        context.arc(thing.x, cy, thing.radius, 0, Math.PI * 2);
+        context.arc(thing.x, thing.y, thing.radius * 2.2 * pulse, 0, Math.PI * 2);
         context.fill();
-        context.strokeStyle = PALETTE.rockEdge;
-        context.lineWidth = 3;
-        context.stroke();
-        context.fillStyle = PALETTE.rockShade;
+        context.fillStyle = PALETTE.drop;
         context.beginPath();
-        context.arc(thing.x - thing.radius * 0.25, cy - thing.radius * 0.2, thing.radius * 0.55, 0, Math.PI * 2);
+        context.arc(thing.x, thing.y, thing.radius * pulse, 0, Math.PI * 2);
         context.fill();
-      } else if (thing.kind === KIND_MOTH) {
-        const flutter = Math.sin(state.elapsed * 9 + index) * 4;
-        context.fillStyle = PALETTE.mothWing;
+        context.fillStyle = PALETTE.dropCore;
         context.beginPath();
-        context.ellipse(thing.x - 10, thing.y + flutter, 11, 6, -0.5, 0, Math.PI * 2);
-        context.ellipse(thing.x + 10, thing.y + flutter, 11, 6, 0.5, 0, Math.PI * 2);
+        context.arc(thing.x - 4, thing.y - 4, thing.radius * 0.35, 0, Math.PI * 2);
         context.fill();
-        context.fillStyle = PALETTE.moth;
+      } else if (thing.kind === KIND_SPIDER) {
+        const wobble = Math.sin(state.elapsed * 6 + thing.wobble) * 2;
+        // Legs first, then the body, then the eyes.
+        context.strokeStyle = PALETTE.spiderLegs;
+        context.lineWidth = 4;
         context.beginPath();
-        context.arc(thing.x, thing.y, 7, 0, Math.PI * 2);
-        context.fill();
-        context.fillStyle = 'rgba(255, 244, 200, 0.9)';
-        context.beginPath();
-        context.arc(thing.x, thing.y, 3, 0, Math.PI * 2);
-        context.fill();
-      } else if (thing.kind === KIND_POOL) {
-        context.fillStyle = PALETTE.poolDark;
-        context.fillRect(thing.x - thing.width / 2, 0, thing.width, FIELD.height);
-      } else if (thing.kind === KIND_REED) {
-        const topEnd = thing.y - thing.gap / 2;
-        const bottomStart = thing.y + thing.gap / 2;
-        context.fillStyle = PALETTE.reeds;
-        context.fillRect(thing.x, 0, thing.width, topEnd);
-        context.fillRect(thing.x, bottomStart, thing.width, FIELD.height - bottomStart);
-        context.fillStyle = PALETTE.reedBlades;
-        for (let blade = 0; blade < 6; blade += 1) {
-          const bx = thing.x + blade * (thing.width / 6);
-          context.fillRect(bx, Math.max(0, topEnd - 30), 4, 30);
-          context.fillRect(bx, bottomStart, 4, 30);
+        for (let leg = 0; leg < 4; leg += 1) {
+          const angle = (leg / 4) * Math.PI + Math.PI / 8 + wobble * 0.05;
+          context.moveTo(thing.x, thing.y);
+          context.lineTo(thing.x + Math.cos(angle) * 34, thing.y + Math.sin(angle) * 34);
+          context.moveTo(thing.x, thing.y);
+          context.lineTo(thing.x - Math.cos(angle) * 34, thing.y + Math.sin(angle) * 34);
         }
-      } else if (thing.kind === KIND_FLARE) {
-        const pulse = 1 + Math.sin(state.elapsed * 7) * 0.2;
-        context.fillStyle = 'rgba(255, 157, 92, 0.35)';
+        context.stroke();
+        context.fillStyle = PALETTE.spider;
         context.beginPath();
-        context.arc(thing.x, thing.y, 26 * pulse, 0, Math.PI * 2);
+        context.arc(thing.x, thing.y, thing.radius, 0, Math.PI * 2);
         context.fill();
-        context.fillStyle = PALETTE.flareText;
+        context.fillStyle = PALETTE.spiderEyes;
         context.beginPath();
-        context.arc(thing.x, thing.y, 12 * pulse, 0, Math.PI * 2);
+        context.arc(thing.x - 8, thing.y - 4, 4, 0, Math.PI * 2);
+        context.arc(thing.x + 8, thing.y - 4, 4, 0, Math.PI * 2);
         context.fill();
-        context.fillStyle = '#fff3d6';
+      } else if (thing.kind === KIND_VINE) {
+        const growth = Math.min(1, (state.elapsed - thing.born) / VINE.growSeconds);
+        const height = growth * 260;
+        context.strokeStyle = PALETTE.vine;
+        context.lineWidth = VINE.width * 0.4;
+        context.beginPath();
+        context.moveTo(thing.x, 70);
+        context.quadraticCurveTo(thing.x + 14, 70 + height * 0.5, thing.x, 70 + height);
+        context.moveTo(thing.x, FIELD.height - 8);
+        context.quadraticCurveTo(thing.x - 14, FIELD.height - 8 - height * 0.5, thing.x, FIELD.height - 8 - height);
+        context.stroke();
+        // Thorns along each vine.
+        context.fillStyle = PALETTE.vineThorn;
+        for (let thorn = 1; thorn <= 4; thorn += 1) {
+          const ty = 70 + (height / 5) * thorn;
+          context.beginPath();
+          context.moveTo(thing.x + 6, ty);
+          context.lineTo(thing.x + 18, ty + 6);
+          context.lineTo(thing.x + 6, ty + 12);
+          context.fill();
+          const by = FIELD.height - 8 - (height / 5) * thorn;
+          context.beginPath();
+          context.moveTo(thing.x - 6, by);
+          context.lineTo(thing.x - 18, by - 6);
+          context.lineTo(thing.x - 6, by - 12);
+          context.fill();
+        }
+      } else if (thing.kind === KIND_SHIELD || thing.kind === KIND_SLOW) {
+        const gold = thing.kind === KIND_SHIELD;
+        const pulse = 1 + Math.sin(state.elapsed * 5 + thing.wobble) * 0.2;
+        context.fillStyle = gold ? 'rgba(255, 209, 102, 0.3)' : 'rgba(127, 184, 255, 0.3)';
+        context.beginPath();
+        context.arc(thing.x, thing.y, thing.radius * 2.4 * pulse, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = gold ? PALETTE.bloomGold : PALETTE.bloomBlue;
+        context.beginPath();
+        for (let petal = 0; petal < 6; petal += 1) {
+          const angle = (petal / 6) * Math.PI * 2 + state.elapsed;
+          context.ellipse(thing.x + Math.cos(angle) * 10, thing.y + Math.sin(angle) * 10, 9, 5, angle, 0, Math.PI * 2);
+        }
+        context.fill();
+        context.fillStyle = '#ffffff';
         context.beginPath();
         context.arc(thing.x, thing.y, 5, 0, Math.PI * 2);
         context.fill();
@@ -204,77 +182,75 @@ export function createRenderer(canvas) {
     }
   }
 
-  /** The barge: a hull, a mast and the ember in its cradle, with a lean tilt. */
-  function drawBarge(state) {
-    const barge = state.barge;
-    const tilt = barge.lean * 0.06;
-    context.save();
-    context.translate(barge.x + barge.width / 2, barge.y + barge.height / 2);
-    context.rotate(tilt);
-    context.fillStyle = PALETTE.bargeHull;
-    context.fillRect(-barge.width / 2, -barge.height / 2 + 8, barge.width, barge.height - 8);
-    context.fillStyle = PALETTE.barge;
-    context.fillRect(-barge.width / 2, -barge.height / 2, barge.width, 12);
-    context.fillStyle = PALETTE.bargeHull;
-    context.fillRect(-6, -barge.height / 2 - 26, 5, 26);
-    context.fillStyle = PALETTE.emberCore;
+  /** The firefly: a warm glow, a body, and two wings that flutter. */
+  function drawFly(state) {
+    const fly = state.fly;
+    const flutter = Math.sin(state.elapsed * 24) * 4;
+    context.fillStyle = PALETTE.flyGlow;
     context.beginPath();
-    context.arc(0, -barge.height / 2 - 30, 8, 0, Math.PI * 2);
+    context.arc(fly.x, fly.y, fly.radius * 2.4, 0, Math.PI * 2);
     context.fill();
-    context.fillStyle = PALETTE.ember;
+    context.fillStyle = PALETTE.flyWing;
     context.beginPath();
-    context.arc(0, -barge.height / 2 - 30, 14, 0, Math.PI * 2);
-    context.globalAlpha = 0.4;
+    context.ellipse(fly.x - 14, fly.y - 10 + flutter, 12, 6, -0.6, 0, Math.PI * 2);
+    context.ellipse(fly.x + 14, fly.y - 10 + flutter, 12, 6, 0.6, 0, Math.PI * 2);
     context.fill();
-    context.globalAlpha = 1;
-    context.restore();
-  }
-
-  /** The ember's light: a radial gradient that opens the dark, brighter as the ember is fed. */
-  function drawLight(state) {
-    const radius = LIGHT.min + (LIGHT.max - LIGHT.min) * (Math.max(0, state.light) / EMBER.max);
-    const cx = state.barge.x + state.barge.width / 2;
-    const cy = state.barge.y + state.barge.height / 2;
-    context.save();
-    context.globalCompositeOperation = 'destination-out';
-    const hole = context.createRadialGradient(cx, cy, radius * 0.15, cx, cy, radius);
-    hole.addColorStop(0, 'rgba(0, 0, 0, 0.85)');
-    hole.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    context.fillStyle = hole;
-    context.fillRect(0, 0, FIELD.width, FIELD.height);
-    context.restore();
-    // A warm tint inside the light, so the glow itself is visible.
-    const warm = context.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    warm.addColorStop(0, 'rgba(255, 190, 100, 0.16)');
-    warm.addColorStop(1, 'rgba(255, 170, 60, 0)');
-    context.fillStyle = warm;
-    context.fillRect(0, 0, FIELD.width, FIELD.height);
-  }
-
-  function drawHud(state, best) {
-    context.textBaseline = 'top';
-    text(scoreLabel(state.score), 24, 20, 30, PALETTE.text, 'left');
-    text(depthLabel(state.depth), FIELD.width / 2, 20, 30, PALETTE.text, 'center');
-    // The ember bar: light is health.
-    const barX = FIELD.width - 264;
-    const barY = 24;
-    const barWidth = 200;
-    text(lightLabel(Math.ceil(state.light)), barX - 12, 20, 30, PALETTE.text, 'right');
-    context.fillStyle = PALETTE.panel;
-    context.fillRect(barX, barY, barWidth, 22);
-    const share = Math.max(0, Math.min(1, state.light / EMBER.max));
-    context.fillStyle = share > 0.35 ? PALETTE.ember : PALETTE.danger;
-    context.fillRect(barX, barY, barWidth * share, 22);
-    context.strokeStyle = PALETTE.muted;
-    context.lineWidth = 2;
-    context.strokeRect(barX, barY, barWidth, 22);
-    // Hull cracks, as marks under the ember bar.
-    for (let mark = 0; mark < HULL_MARKS; mark += 1) {
-      context.fillStyle = mark < state.cracks ? PALETTE.danger : PALETTE.panel;
-      context.fillRect(barX + mark * 30, barY + 28, 22, 6);
+    context.fillStyle = PALETTE.fly;
+    context.beginPath();
+    context.arc(fly.x, fly.y, fly.radius, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = '#5a4a1a';
+    context.beginPath();
+    context.arc(fly.x - 6, fly.y - 4, 3.5, 0, Math.PI * 2);
+    context.arc(fly.x + 6, fly.y - 4, 3.5, 0, Math.PI * 2);
+    context.fill();
+    // The shield ring while it lasts.
+    if (state.shieldSeconds > 0) {
+      context.strokeStyle = PALETTE.shieldRing;
+      context.lineWidth = 4;
+      context.beginPath();
+      context.arc(fly.x, fly.y, fly.radius + 12 + Math.sin(state.elapsed * 8) * 3, 0, Math.PI * 2);
+      context.stroke();
     }
-    if (state.combo >= 2) text(comboLabel(state.combo), 24, 58, 26, PALETTE.comboText, 'left');
-    if (state.flareSeconds > 0) text(`FLARE ${Math.ceil(state.flareSeconds)}s`, 24, state.combo >= 2 ? 92 : 58, 26, PALETTE.flareText, 'left');
+  }
+
+  function drawHud(state) {
+    context.textBaseline = 'top';
+    text(scoreLabel(state.score), 24, 18, 30, PALETTE.text, 'left');
+    text(gardenLabel(`${state.garden}/${GARDENS}`), FIELD.width / 2, 18, 30, PALETTE.text, 'center');
+    // The jar: collected drops as filled dots, the rest as hollow ones.
+    const dots = state.needed;
+    const dotX = 24;
+    const dotY = 64;
+    text(jarLabel(`${state.collected}/${state.needed}`), 24, 92, 22, PALETTE.muted, 'left');
+    for (let index = 0; index < dots; index += 1) {
+      const x = dotX + index * 26;
+      context.beginPath();
+      context.arc(x, dotY, 8, 0, Math.PI * 2);
+      if (index < state.collected) {
+        context.fillStyle = PALETTE.drop;
+        context.fill();
+      } else {
+        context.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        context.lineWidth = 2;
+        context.stroke();
+      }
+    }
+    // Hearts, top-right.
+    for (let index = 0; index < HEARTS; index += 1) {
+      const x = FIELD.width - 40 - index * 44;
+      const y = 34;
+      context.fillStyle = index < state.hearts ? PALETTE.heart : PALETTE.heartEmpty;
+      context.beginPath();
+      context.arc(x - 7, y - 4, 9, 0, Math.PI * 2);
+      context.arc(x + 7, y - 4, 9, 0, Math.PI * 2);
+      context.moveTo(x - 15, y);
+      context.lineTo(x, y + 16);
+      context.lineTo(x + 15, y);
+      context.closePath();
+      context.fill();
+    }
+    if (state.slowSeconds > 0) text(`SLOW ${Math.ceil(state.slowSeconds)}s`, FIELD.width - 24, 66, 22, PALETTE.bloomBlue, 'right');
   }
 
   function drawPanel(title, lines, prompt) {
@@ -287,50 +263,60 @@ export function createRenderer(canvas) {
     context.lineWidth = 3;
     context.strokeRect(x, y, PANEL.width, height);
     context.textBaseline = 'alphabetic';
-    text(title, FIELD.width / 2, y + 90, 56, PALETTE.ember, 'center');
+    text(title, FIELD.width / 2, y + 92, 56, PALETTE.bloomGold, 'center');
     for (let index = 0; index < lines.length; index += 1) {
-      text(lines[index], FIELD.width / 2, y + PANEL.top + index * PANEL.line, 23, PALETTE.muted, 'center');
+      text(lines[index], FIELD.width / 2, y + PANEL.top + index * PANEL.line, 24, PALETTE.muted, 'center');
     }
-    text(prompt, FIELD.width / 2, y + height - 44, 26, PALETTE.text, 'center');
+    text(prompt, FIELD.width / 2, y + height - 46, 26, PALETTE.text, 'center');
   }
 
   const TITLE_LINES = [
-    'Pilot the lantern-barge down the drowned canal.',
-    'The ember is your life: it drains always, faster in dark pools.',
-    'Catch glow-moths to feed it — back-to-back catches build a combo.',
-    'Catch an ember flare and rocks burn as fuel for a few seconds.',
-    'Lean right (D / →) to race the current — faster, and wilder.',
+    'You are a firefly. Move freely: WASD / arrows, or drag anywhere.',
+    'Collect glowing dew drops to fill the jar before dawn.',
+    'Avoid the spiders and the thorn vines.',
+    'Golden bloom = shield · Blue bloom = slow time.',
+    'Three hearts. Three gardens. Each busier than the last.',
   ];
-  const PAUSED_LINES = ['The canal will wait for you.'];
-  const OVER_LINES = ['', '', ''];
+  const PAUSED_LINES = ['The garden will wait for you.'];
+  const END_LINES = ['', '', ''];
 
-  /** Paint one frame: the water, the things, the barge, the light, then the HUD or a panel. */
+  /** Paint one frame: the garden, the things, the firefly, then the HUD or a panel. */
   function draw(state, screen, best, dt) {
-    if (shake > 0) shake = Math.max(0, shake - dt * 30);
     context.setTransform(1, 0, 0, 1, 0, 0);
-    context.fillStyle = PALETTE.backdrop;
+    context.fillStyle = PALETTE.sky;
     context.fillRect(0, 0, canvas.width, canvas.height);
-    const jx = shake > 0 ? (Math.random() - 0.5) * shake : 0;
-    const jy = shake > 0 ? (Math.random() - 0.5) * shake : 0;
-    context.setTransform(view.scale, 0, 0, view.scale, view.x + jx * view.scale, view.y + jy * view.scale);
-    drawWater(state);
+    context.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
+    drawBackdrop(state);
     drawThings(state);
-    drawBarge(state);
-    drawLight(state);
-    drawParticles(dt ?? 1 / 60);
+    drawFly(state);
+    if (state.slowSeconds > 0) {
+      context.fillStyle = PALETTE.slowTint;
+      context.fillRect(0, 0, FIELD.width, FIELD.height);
+    }
+    if (state.hitFlash > 0) {
+      context.fillStyle = `rgba(255, 93, 93, ${state.hitFlash * 0.25})`;
+      context.fillRect(0, 0, FIELD.width, FIELD.height);
+    }
     if (screen === SCREEN_TITLE) {
-      drawPanel('Ember Canal', TITLE_LINES, 'Press Space or click to launch');
+      drawPanel('Firefly Garden', TITLE_LINES, 'Tap, click or press Space to begin');
       return;
     }
-    drawHud(state, best);
+    drawHud(state);
     if (screen === SCREEN_PAUSED) drawPanel('Paused', PAUSED_LINES, 'Press P to resume');
     else if (screen === SCREEN_OVER) {
-      OVER_LINES[0] = finalLabel(state.score);
-      OVER_LINES[1] = bestLabel(best);
-      OVER_LINES[2] = `${state.mothsCaught} moths · best combo x${state.combo} · depth ${state.depth} of ${DEPTH.max} · ${state.rocksBurned} rocks burned`;
-      drawPanel('The ember went out', OVER_LINES, 'Press Space or click to launch again');
+      END_LINES[0] = finalLabel(state.score);
+      END_LINES[1] = bestLabel(best);
+      END_LINES[2] = `Garden ${state.garden} of ${GARDENS} · ${state.collected}/${state.needed} drops`;
+      drawPanel('Caught!', END_LINES, 'Tap, click or press Space to try again');
+    } else if (screen === SCREEN_WIN) {
+      END_LINES[0] = finalLabel(state.score);
+      END_LINES[1] = bestLabel(best);
+      END_LINES[2] = 'All three gardens filled before dawn!';
+      drawPanel('Dawn Breaks — You Win', END_LINES, 'Tap, click or press Space to play again');
     }
   }
 
-  return { draw, burst, addShake(amount) { shake = Math.max(shake, amount); } };
+  resize();
+  window.addEventListener('resize', resize);
+  return { draw, toField };
 }
