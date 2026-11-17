@@ -59,7 +59,7 @@ export function createInput(target, toField, getFly) {
   target.addEventListener('pointerdown', (event) => {
     actions |= ACTION_CONFIRM;
     if (toField) pointer = toField(event.clientX, event.clientY);
-    target.setPointerCapture?.(event.pointerId);
+    try { target.setPointerCapture?.(event.pointerId); } catch { /* synthetic pointers cannot be captured */ }
   });
   target.addEventListener('pointermove', (event) => {
     if (pointer !== null && toField) pointer = toField(event.clientX, event.clientY);

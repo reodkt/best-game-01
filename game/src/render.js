@@ -43,13 +43,16 @@ export function createRenderer(canvas) {
     view.scale = Math.min(width / FIELD.width, height / FIELD.height);
     view.x = (width - FIELD.width * view.scale) / 2;
     view.y = (height - FIELD.height * view.scale) / 2;
+    // CSS pixels per device pixel: pointer events report CSS pixels, the canvas is device pixels.
+    view.css = ratio;
   }
 
-  /** Map screen pixels to field coordinates, and expose the fly's field position for input. */
+  /** Map screen (CSS) pixels to field coordinates, for input steering. */
   function toField(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
     return {
-      x: (clientX - view.x) / view.scale,
-      y: (clientY - view.y) / view.scale,
+      x: (clientX - rect.left) * (FIELD.width / rect.width),
+      y: (clientY - rect.top) * (FIELD.height / rect.height),
     };
   }
 
