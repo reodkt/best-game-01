@@ -317,9 +317,31 @@ export function createRenderer(canvas) {
       END_LINES[2] = 'All three gardens filled before dawn!';
       drawPanel('Dawn Breaks — You Win', END_LINES, 'Tap, click or press Space to play again');
     }
+    drawStick();
+  }
+
+  /** The virtual joystick, drawn while a finger is down on a touch screen. */
+  let stickState = null;
+  function showStick(stick) {
+    stickState = stick;
+  }
+  function drawStick() {
+    if (stickState === null) return;
+    const base = toField(stickState.baseX, stickState.baseY);
+    const knobX = base.x + (stickState.dx / 56) * 60;
+    const knobY = base.y + (stickState.dy / 56) * 60;
+    context.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    context.lineWidth = 3;
+    context.beginPath();
+    context.arc(base.x, base.y, 56, 0, Math.PI * 2);
+    context.stroke();
+    context.fillStyle = 'rgba(255, 255, 255, 0.35)';
+    context.beginPath();
+    context.arc(knobX, knobY, 26, 0, Math.PI * 2);
+    context.fill();
   }
 
   resize();
   window.addEventListener('resize', resize);
-  return { draw, toField };
+  return { draw, toField, showStick };
 }
