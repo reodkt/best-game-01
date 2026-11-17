@@ -43,7 +43,8 @@ function saveBest(value) {
 }
 
 function runGame() {
-  const input = createInput(canvas, renderer.toField);
+  // The renderer draws the virtual joystick when a finger is down (onStick relays it).
+  const input = createInput(canvas, renderer.toField, renderer.showStick);
   let screen = SCREEN_TITLE;
   let best = readBest();
   let accumulator = 0;

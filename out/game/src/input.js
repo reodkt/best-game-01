@@ -1,6 +1,8 @@
-// Keyboard and pointer input. Held keys give a direction vector; a touch drag or mouse drag
-// anywhere on the canvas moves the firefly toward the pointer (mobile-friendly). One-shot
-// presses (start, restart, pause, mute) are queued as bit flags and taken once by the loop.
+// Keyboard and pointer input. Held keys give a direction vector. On touch, a VIRTUAL JOYSTICK:
+// the first touch anywhere spawns a stick at that point; dragging moves the knob, and the
+// fly walks in the knob's direction (with magnitude, so a small tilt walks slowly). The stick
+// stays until the finger lifts. A tap (short touch without drag) still counts as CONFIRM.
+// One-shot presses (start, restart, pause, mute) queue as bit flags.
 
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
@@ -14,14 +16,20 @@ const CONFIRM = new Set(['Space', 'Enter']);
 const PAUSE = new Set(['KeyP', 'Escape']);
 const MUTE = new Set(['KeyM']);
 
-export function createInput(target, canvasToField) {
+/** How far the knob must move (CSS px) before it counts as a direction, not a tap. */
+const DEAD_ZONE = 12;
+/** Knob travel in CSS px at which the stick reads full speed. */
+const RANGE = 56;
+
+export function createInput(target, toField, onStick) {
   let up = false;
   let down = false;
   let left = false;
   let right = false;
   let actions = 0;
-  // Pointer drag: while pressed, the fly steers toward the pointer (mapped to field coords).
-  let pointer = null;
+  // Virtual joystick state, in CSS pixels relative to the viewport.
+  let stick = null; // { baseX, baseY, dx, dy, moved }
+  let pointerDownAt = 0;
 
   window.addEventListener('keydown', (event) => {
     if (UP.has(event.code)) up = true;
@@ -49,35 +57,54 @@ export function createInput(target, canvasToField) {
     down = false;
     left = false;
     right = false;
-    pointer = null;
+    stick = null;
+    if (onStick) onStick(null);
   });
 
-  function toField(event) {
-    if (!canvasToField) return null;
-    return canvasToField(event.clientX, event.clientY);
-  }
   target.addEventListener('pointerdown', (event) => {
     actions |= ACTION_CONFIRM;
-    pointer = toField(event);
-    target.setPointerCapture?.(event.pointerId);
+    pointerDownAt = performance.now();
+    if (stick === null) {
+      stick = { baseX: event.clientX, baseY: event.clientY, dx: 0, dy: 0, moved: false };
+      if (onStick) onStick(stick);
+    }
+    try { target.setPointerCapture?.(event.pointerId); } catch { /* synthetic pointers cannot be captured */ }
+    event.preventDefault();
   });
   target.addEventListener('pointermove', (event) => {
-    if (pointer !== null) pointer = toField(event);
+    if (stick === null) return;
+    let dx = event.clientX - stick.baseX;
+    let dy = event.clientY - stick.baseY;
+    const dist = Math.hypot(dx, dy);
+    if (dist > DEAD_ZONE) stick.moved = true;
+    // Clamp the knob to its range so the direction stays honest at full deflection.
+    if (dist > RANGE) {
+      dx = (dx / dist) * RANGE;
+      dy = (dy / dist) * RANGE;
+    }
+    stick.dx = dx;
+    stick.dy = dy;
+    if (onStick) onStick(stick);
+    event.preventDefault();
   });
   const release = () => {
-    pointer = null;
+    stick = null;
+    if (onStick) onStick(null);
   };
   target.addEventListener('pointerup', release);
   target.addEventListener('pointercancel', release);
+  // A long-press context menu would otherwise steal the pointer mid-drag on Android.
+  target.addEventListener('contextmenu', (event) => event.preventDefault());
 
   return {
-    /** The move direction as a vector: keys give -1/0/1 per axis; a drag steers toward the pointer. */
+    /** The move direction as a vector: keys give -1/0/1 per axis; the stick gives a scaled vector. */
     direction() {
-      if (pointer !== null) {
-        const dx = pointer.x - (canvasToField ? canvasToField().__x : 0);
-        const dy = pointer.y - (canvasToField ? canvasToField().__y : 0);
-        const dist = Math.hypot(dx, dy);
-        if (dist > 24) return { dx: dx / dist, dy: dy / dist };
+      if (stick !== null && stick.moved) {
+        const len = Math.hypot(stick.dx, stick.dy);
+        if (len > DEAD_ZONE) {
+          const power = Math.min(1, (len - DEAD_ZONE) / (RANGE - DEAD_ZONE));
+          return { dx: (stick.dx / len) * power, dy: (stick.dy / len) * power };
+        }
         return { dx: 0, dy: 0 };
       }
       return { dx: (right ? 1 : 0) - (left ? 1 : 0), dy: (down ? 1 : 0) - (up ? 1 : 0) };
