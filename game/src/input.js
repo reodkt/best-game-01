@@ -1,5 +1,5 @@
 // Keyboard and pointer input. Held keys give a direction vector; a touch drag or mouse drag
-// anywhere on the canvas moves the firefly toward the pointer (mobile-friendly). One-shot
+// anywhere on the canvas steers the firefly toward the pointer (mobile-friendly). One-shot
 // presses (start, restart, pause, mute) are queued as bit flags and taken once by the loop.
 
 export const ACTION_CONFIRM = 1;
@@ -14,7 +14,11 @@ const CONFIRM = new Set(['Space', 'Enter']);
 const PAUSE = new Set(['KeyP', 'Escape']);
 const MUTE = new Set(['KeyM']);
 
-export function createInput(target, canvasToField) {
+/**
+ * `toField(clientX, clientY)` maps screen pixels to field coordinates; `getFly()` returns the
+ * fly's current field position, so a drag can steer toward the pointer.
+ */
+export function createInput(target, toField, getFly) {
   let up = false;
   let down = false;
   let left = false;
@@ -52,17 +56,13 @@ export function createInput(target, canvasToField) {
     pointer = null;
   });
 
-  function toField(event) {
-    if (!canvasToField) return null;
-    return canvasToField(event.clientX, event.clientY);
-  }
   target.addEventListener('pointerdown', (event) => {
     actions |= ACTION_CONFIRM;
-    pointer = toField(event);
+    if (toField) pointer = toField(event.clientX, event.clientY);
     target.setPointerCapture?.(event.pointerId);
   });
   target.addEventListener('pointermove', (event) => {
-    if (pointer !== null) pointer = toField(event);
+    if (pointer !== null && toField) pointer = toField(event.clientX, event.clientY);
   });
   const release = () => {
     pointer = null;
@@ -74,8 +74,9 @@ export function createInput(target, canvasToField) {
     /** The move direction as a vector: keys give -1/0/1 per axis; a drag steers toward the pointer. */
     direction() {
       if (pointer !== null) {
-        const dx = pointer.x - (canvasToField ? canvasToField().__x : 0);
-        const dy = pointer.y - (canvasToField ? canvasToField().__y : 0);
+        const fly = getFly ? getFly() : { x: 0, y: 0 };
+        const dx = pointer.x - fly.x;
+        const dy = pointer.y - fly.y;
         const dist = Math.hypot(dx, dy);
         if (dist > 24) return { dx: dx / dist, dy: dy / dist };
         return { dx: 0, dy: 0 };

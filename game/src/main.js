@@ -43,7 +43,7 @@ function saveBest(value) {
 }
 
 function runGame() {
-  const input = createInput(canvas, renderer.toField);
+  const input = createInput(canvas, renderer.toField, () => world.state.fly);
   let screen = SCREEN_TITLE;
   let best = readBest();
   let accumulator = 0;
